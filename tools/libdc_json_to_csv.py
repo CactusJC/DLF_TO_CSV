@@ -1,6 +1,7 @@
 import argparse
 import csv
 import json
+import os
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -69,8 +70,17 @@ def main():
         sys.exit(1)
 
     try:
-        command = [args.helper, args.input_dlf]
-        env = {"LD_LIBRARY_PATH": "/usr/local/lib"}
+        # Resolve helper path to an absolute path for robustness
+        helper_path = os.path.abspath(args.helper)
+        command = [helper_path, args.input_dlf]
+
+        # Create a copy of the current environment and update it
+        # This is crucial to ensure the subprocess inherits the standard PATH
+        # while also getting the path to our locally compiled library.
+        env = os.environ.copy()
+        # The path to our locally built libdivecomputer.so
+        env["LD_LIBRARY_PATH"] = "/tmp/libdivecomputer/install/lib"
+
         result = subprocess.run(
             command,
             capture_output=True,
