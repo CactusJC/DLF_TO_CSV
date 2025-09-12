@@ -1,0 +1,12 @@
+# Compiled files
+tools/dlf_parser_helper
+tools/*.o
+
+# Generated files
+tests/out.csv
+tests/out.json
+tests/out.ssrf
+tests/reference.xml
+
+# Temporary files
+*.log
