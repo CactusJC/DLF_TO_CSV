@@ -81,31 +81,30 @@ def main():
         # The path to our locally built libdivecomputer.so
         env["LD_LIBRARY_PATH"] = "/tmp/libdivecomputer/install/lib"
 
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=True,
-            env=env
-        )
-        json_output = result.stdout
+        # Run helper and capture stdout/stderr so we can detect helper failures and avoid parsing partial output.
+        proc = subprocess.run(command, capture_output=True, text=True, env=env)
+
+        if proc.returncode != 0:
+            err_msg = proc.stderr.strip() or "Unknown error from helper"
+            print(f"ERROR: DLF helper failed (exit {proc.returncode}): {err_msg}", file=sys.stderr)
+            sys.exit(1)
+
+        json_output = proc.stdout
+        data = json.loads(json_output)
+
     except FileNotFoundError:
         print(f"Error: Helper executable not found at '{args.helper}'", file=sys.stderr)
         sys.exit(1)
-    except subprocess.CalledProcessError as e:
-        print(f"Error running helper process:", file=sys.stderr)
-        print(f"  Command: {' '.join(e.cmd)}", file=sys.stderr)
-        print(f"  Return code: {e.returncode}", file=sys.stderr)
-        print(f"  Stderr: {e.stderr}", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        data = json.loads(json_output)
     except json.JSONDecodeError as e:
         print(f"Error: Invalid JSON received from helper: {e}", file=sys.stderr)
         print("------- Helper Output -------", file=sys.stderr)
+        # json_output is defined at this point
         print(json_output, file=sys.stderr)
         print("-----------------------------", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        # Catch any other unexpected errors.
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
         sys.exit(1)
 
     # Write to CSV if requested

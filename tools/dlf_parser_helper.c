@@ -47,7 +47,12 @@ static void sample_callback(dc_sample_type_t type, const dc_sample_value_t *valu
     if (type == DC_SAMPLE_TIME) {
         if (s_vector->count == s_vector->capacity) {
             s_vector->capacity = (s_vector->capacity == 0) ? 128 : s_vector->capacity * 2;
-            s_vector->samples = (sample_t *)realloc(s_vector->samples, s_vector->capacity * sizeof(sample_t));
+            sample_t *tmp = (sample_t *)realloc(s_vector->samples, s_vector->capacity * sizeof(sample_t));
+            if (tmp == NULL) {
+                fprintf(stderr, "PARSER_ERR: realloc failed for samples\n");
+                exit(3);
+            }
+            s_vector->samples = tmp;
         }
 
         sample_t *sample = &s_vector->samples[s_vector->count++];
@@ -69,7 +74,12 @@ static void sample_callback(dc_sample_type_t type, const dc_sample_value_t *valu
         } else if (type == DC_SAMPLE_EVENT) {
             if (e_vector->count == e_vector->capacity) {
                 e_vector->capacity = (e_vector->capacity == 0) ? 16 : e_vector->capacity * 2;
-                e_vector->events = (event_t *)realloc(e_vector->events, e_vector->capacity * sizeof(event_t));
+                event_t *tmp = (event_t *)realloc(e_vector->events, e_vector->capacity * sizeof(event_t));
+                if (tmp == NULL) {
+                    fprintf(stderr, "PARSER_ERR: realloc failed for events\n");
+                    exit(3);
+                }
+                e_vector->events = tmp;
             }
             event_t *event = &e_vector->events[e_vector->count++];
             event->time = value->event.time;
@@ -87,41 +97,50 @@ int main(int argc, char *argv[])
     }
 
     const char *filepath = argv[1];
-    FILE *file = fopen(filepath, "rb");
+    FILE *file = NULL;
+    unsigned char *buffer = NULL;
+    long filesize;
+    dc_context_t *context = NULL;
+    dc_parser_t *parser = NULL;
+    dc_descriptor_t *descriptor = NULL;
+    sample_vector_t s_vector = {0};
+    event_vector_t e_vector = {0};
+    int rc = 0;
+
+    file = fopen(filepath, "rb");
     if (!file) {
         fprintf(stderr, "PARSER_ERR: Cannot open file: %s\n", filepath);
-        return 2;
+        rc = 2;
+        goto cleanup;
     }
 
     fseek(file, 0, SEEK_END);
-    long filesize = ftell(file);
+    filesize = ftell(file);
     fseek(file, 0, SEEK_SET);
 
-    unsigned char *buffer = (unsigned char *)malloc(filesize);
+    buffer = (unsigned char *)malloc(filesize);
     if (!buffer) {
         fprintf(stderr, "PARSER_ERR: Cannot allocate memory\n");
-        fclose(file);
-        return 3;
+        rc = 3;
+        goto cleanup;
     }
 
     if (fread(buffer, 1, filesize, file) != filesize) {
         fprintf(stderr, "PARSER_ERR: Cannot read file: %s\n", filepath);
-        fclose(file);
-        free(buffer);
-        return 4;
+        rc = 4;
+        goto cleanup;
     }
+    // File is read, we can close it.
     fclose(file);
+    file = NULL;
 
-    dc_context_t *context;
-    dc_parser_t *parser;
-    dc_descriptor_t *descriptor;
     dc_status_t status;
 
     status = dc_context_new(&context);
     if (status != DC_STATUS_SUCCESS) {
         fprintf(stderr, "PARSER_ERR: dc_context_new failed with status %d\n", status);
-        free(buffer);
-        return 5;
+        rc = 5;
+        goto cleanup;
     }
 
     dc_iterator_t *iterator;
@@ -138,18 +157,15 @@ int main(int argc, char *argv[])
 
     if (descriptor == NULL) {
         fprintf(stderr, "PARSER_ERR: Divesoft Freedom descriptor not found\n");
-        dc_context_free(context);
-        free(buffer);
-        return 6;
+        rc = 6;
+        goto cleanup;
     }
 
     status = dc_parser_new2(&parser, context, descriptor, buffer, filesize);
     if (status != DC_STATUS_SUCCESS) {
         fprintf(stderr, "PARSER_ERR: dc_parser_new2 failed with status %d\n", status);
-        dc_descriptor_free(descriptor);
-        dc_context_free(context);
-        free(buffer);
-        return 7;
+        rc = 7;
+        goto cleanup;
     }
 
     // JSON output
@@ -181,12 +197,8 @@ int main(int argc, char *argv[])
         printf(",\n    \"cylinder\": { \"size_l\": null, \"work_pressure_bar\": null }");
     }
 
-    dc_descriptor_free(descriptor);
-
     printf("\n  },\n");
 
-    sample_vector_t s_vector = {0};
-    event_vector_t e_vector = {0};
     callback_data_t cb_data = { &s_vector, &e_vector };
     dc_parser_samples_foreach(parser, sample_callback, &cb_data);
 
@@ -224,11 +236,21 @@ int main(int argc, char *argv[])
     printf("  ]\n");
     printf("}\n");
 
-    free(s_vector.samples);
-    free(e_vector.events);
-    dc_parser_destroy(parser);
-    dc_context_free(context);
-    free(buffer);
+cleanup:
+    if (s_vector.samples)
+        free(s_vector.samples);
+    if (e_vector.events)
+        free(e_vector.events);
+    if (parser)
+        dc_parser_destroy(parser);
+    if (descriptor)
+        dc_descriptor_free(descriptor);
+    if (context)
+        dc_context_free(context);
+    if (buffer)
+        free(buffer);
+    if (file)
+        fclose(file);
 
-    return 0;
+    return rc;
 }
