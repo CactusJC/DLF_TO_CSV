@@ -9,9 +9,20 @@ This document describes the tools for converting Divesoft DLF files to CSV and S
 
 ## Building in a Sandbox Environment
 
+### Automated Installation (Recommended)
+
+For a simplified setup, run the provided installation script. This will download and build the necessary dependencies and the helper tool.
+
+```bash
+# Run the installation script
+./install.sh
+```
+
+### Manual Installation
+
 Building the C helper requires `libdivecomputer`. The following steps detail how to build the dependency and the helper in an environment without `sudo` access, installing the libraries locally.
 
-### Step 1: Build and Install `libdivecomputer` Locally
+#### Step 1: Build and Install `libdivecomputer` Locally
 
 The library will be "installed" into a local directory inside `/tmp`.
 
@@ -29,7 +40,7 @@ make install
 cd -
 ```
 
-### Step 2: Build the `dlf_parser_helper`
+#### Step 2: Build the `dlf_parser_helper`
 
 The `Makefile` for the helper relies on `pkg-config` to find `libdivecomputer`. You must point `pkg-config` to the local installation directory you just created.
 
@@ -109,4 +120,3 @@ The code in this repository is licensed under the terms of the LICENSE file in t
 **Resolution:**
 
 *   **Added `cd -` command:** A `cd -` command was added to the `libdivecomputer` build process. This command returns the user to the project's root directory, allowing the subsequent `make` command to execute successfully.
-*   **Added Explanatory Comment:** An inline comment was added to clarify the purpose of the `cd -` command.
