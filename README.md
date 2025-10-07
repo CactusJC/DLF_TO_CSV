@@ -120,4 +120,3 @@ The code in this repository is licensed under the terms of the LICENSE file in t
 **Resolution:**
 
 *   **Added `cd -` command:** A `cd -` command was added to the `libdivecomputer` build process. This command returns the user to the project's root directory, allowing the subsequent `make` command to execute successfully.
-*   **Added Explanatory Comment:** An inline comment was added to clarify the purpose of the `cd -` command.
