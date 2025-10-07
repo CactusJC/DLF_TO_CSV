@@ -1,0 +1,68 @@
+*** Begin Patch
+*** Update File: tools/dlf_parser_helper.c
+@@
+-    s_vector->samples = (sample_t *)realloc(s_vector->samples, s_vector->capacity * sizeof(sample_t));
++    /* safe realloc: use a temporary pointer so the original pointer is preserved on failure */
++    {
++        sample_t *tmp_samples = (sample_t *)realloc(s_vector->samples, s_vector->capacity * sizeof(sample_t));
++        if (!tmp_samples) {
++            fprintf(stderr, "PARSER_ERR: memory allocation failed while expanding sample buffer\n");
++            rc = 1;
++            goto err_cleanup;
++        }
++        s_vector->samples = tmp_samples;
++    }
+@@
+-    e_vector->events = (event_t *)realloc(e_vector->events, e_vector->capacity * sizeof(event_t));
++    /* safe realloc: use a temporary pointer so the original pointer is preserved on failure */
++    {
++        event_t *tmp_events = (event_t *)realloc(e_vector->events, e_vector->capacity * sizeof(event_t));
++        if (!tmp_events) {
++            fprintf(stderr, "PARSER_ERR: memory allocation failed while expanding event buffer\n");
++            rc = 1;
++            goto err_cleanup;
++        }
++        e_vector->events = tmp_events;
++    }
++
++    /* ... other code ... */
++
++    /* normal success path continues below */
++
++err_cleanup:
++    /* centralized cleanup: free allocated buffers and destroy libdivecomputer objects */
++    if (s_vector) {
++        if (s_vector->samples) {
++            free(s_vector->samples);
++            s_vector->samples = NULL;
++        }
++        free(s_vector);
++        s_vector = NULL;
++    }
++    if (e_vector) {
++        if (e_vector->events) {
++            free(e_vector->events);
++            e_vector->events = NULL;
++        }
++        free(e_vector);
++        e_vector = NULL;
++    }
++    if (parser) {
++        dc_parser_destroy(parser);
++        parser = NULL;
++    }
++    if (context) {
++        dc_context_free(context);
++        context = NULL;
++    }
++    if (buffer) {
++        free(buffer);
++        buffer = NULL;
++    }
++    if (fp) {
++        fclose(fp);
++        fp = NULL;
++    }
++    /* return non-zero rc on error, 0 on success */
++    return rc;
+*** End Patch
