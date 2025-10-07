@@ -25,6 +25,8 @@ autoreconf --install
 ./configure --prefix=/tmp/libdivecomputer/install
 make
 make install
+# Return to the project root directory before proceeding
+cd -
 ```
 
 ### Step 2: Build the `dlf_parser_helper`
@@ -93,3 +95,18 @@ The C helper `dlf_parser_helper` is dynamically linked against the `libdivecompu
 - **`libdivecomputer` source code:** [https://github.com/libdivecomputer/libdivecomputer](https://github.com/libdivecomputer/libdivecomputer)
 
 The code in this repository is licensed under the terms of the LICENSE file in the repository root.
+
+## Installation Testing Report
+
+**Objective:** To validate the installation and usage instructions in this `README.md` file, identify any issues, and implement corrections.
+
+**Procedure:** The tester followed the "Building in a Sandbox Environment" and "Usage" sections of this document.
+
+**Findings:**
+
+*   **Build Instruction Error:** A critical error was identified in the build instructions. After building and installing `libdivecomputer`, the user is left in the `/tmp/libdivecomputer` directory. The next step, `make -C tools`, fails because the `tools` directory does not exist there.
+
+**Resolution:**
+
+*   **Added `cd -` command:** A `cd -` command was added to the `libdivecomputer` build process. This command returns the user to the project's root directory, allowing the subsequent `make` command to execute successfully.
+*   **Added Explanatory Comment:** An inline comment was added to clarify the purpose of the `cd -` command.
