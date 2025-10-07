@@ -1,0 +1,23 @@
+# Sandbox Environment Details
+
+This document provides details about the sandbox environment used for testing and development.
+
+## Operating System
+- **Distribution:** Ubuntu
+- **Version:** 24.04.2 LTS (Noble Numbat)
+- **Codename:** noble
+
+## Development Tools
+- **GCC (C Compiler):** `gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0`
+- **Make:** `GNU Make 4.3`
+- **Git:** `git version 2.50.1`
+- **Python:** `Python 3.12.11`
+
+## Testing Process
+The installation instructions were tested by following the steps outlined in the `README.md` file within this environment. This included:
+1.  Cloning the `libdivecomputer` repository.
+2.  Building and installing `libdivecomputer` locally.
+3.  Building the `dlf_parser_helper` tool.
+4.  Running the provided Python script to perform a conversion.
+
+The automated `install.sh` script was also created and tested in this same environment to ensure its correctness and robustness.
