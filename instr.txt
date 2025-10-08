@@ -1,0 +1,331 @@
+Windows build files for DLF_TO_CSV (mail branch)
+This canvas contains all files to add to a new windows/ folder on a mail branch. Each file is provided verbatim in a code block — copy each file into your repository under windows/ and commit.
+________________________________________
+File: windows/build-cross-ubuntu.sh
+#!/usr/bin/env bash
+# build-cross-ubuntu.sh
+# Cross-compile libdivecomputer and dlf_parser_helper for Windows x86_64 on Ubuntu 24.04
+# - idempotent: cleans previous dist/ and temporary build dirs
+# - calls check-deps.sh
+# - builds libdivecomputer with host=x86_64-w64-mingw32
+# - builds dlf_parser_helper.exe using x86_64-w64-mingw32-gcc
+# - collects dlls (libdivecomputer.dll and common mingw runtime dlls) into windows/dist/win-x86_64
+
+set -euo pipefail
+IFS=$'\n\t'
+
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+DIST_DIR="$BASE_DIR/dist/win-x86_64"
+TMP_ROOT="/tmp/libdivecomputer_build"
+LIBDC_REPO="https://github.com/libdivecomputer/libdivecomputer.git"
+REPO_ROOT="$(cd "$BASE_DIR/.." && pwd)"  # repo root assumed to be parent of windows/
+
+# allow override with environment variables
+TARGET_HOST="${TARGET_HOST:-x86_64-w64-mingw32}"
+NPROC=${NPROC:-$(nproc)}
+
+echo "=== Windows cross-build: start ==="
+
+# 0) run dependency check
+"$BASE_DIR/check-deps.sh"
+
+# 1) prepare directories (idempotent)
+rm -rf "$DIST_DIR"
+mkdir -p "$DIST_DIR"
+
+rm -rf "$TMP_ROOT"
+mkdir -p "$TMP_ROOT"
+BUILD_DIR="$TMP_ROOT/build"
+mkdir -p "$BUILD_DIR"
+
+# 2) install required apt packages (non-interactive). This may ask for sudo.
+if ! dpkg -s mingw-w64 >/dev/null 2>&1; then
+  echo "Installing system packages (requires sudo)..."
+  sudo apt update
+  sudo apt install -y git build-essential mingw-w64 pkg-config autoconf automake libtool wget unzip
+fi
+
+# 3) clone and build libdivecomputer
+cd "$BUILD_DIR"
+if [ -d libdivecomputer ]; then rm -rf libdivecomputer; fi
+git clone --depth 1 "$LIBDC_REPO" libdivecomputer
+cd libdivecomputer
+
+echo "Running autoreconf..."
+autoreconf --install || true
+
+STAGING_PREFIX="$BUILD_DIR/install"
+mkdir -p "$STAGING_PREFIX"
+
+export CC="${TARGET_HOST}-gcc"
+export AR="${TARGET_HOST}-ar"
+export RANLIB="${TARGET_HOST}-ranlib"
+export STRIP="${TARGET_HOST}-strip"
+
+echo "Configuring libdivecomputer for target=$TARGET_HOST (prefix=$STAGING_PREFIX)"
+./configure --host="$TARGET_HOST" --build=$(uname -m)-pc-linux-gnu --prefix="$STAGING_PREFIX" --enable-shared --disable-static
+
+echo "Building libdivecomputer..."
+make -j"$NPROC"
+make install
+
+# 4) build dlf_parser_helper using cross compiler
+cd "$REPO_ROOT/tools"
+
+# prefer to use pkg-config from cross install if present
+export PKG_CONFIG_LIBDIR="$STAGING_PREFIX/lib/pkgconfig"
+export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR:$PKG_CONFIG_PATH"
+
+# clean
+make clean || true
+
+echo "Building dlf_parser_helper.exe with $TARGET_HOST-gcc"
+CC_CMD="${TARGET_HOST}-gcc"
+# Try make first (if Makefile honors CC), else compile directly
+if make CC="$CC_CMD" -j"$NPROC"; then
+  echo "Built via Makefile"
+else
+  echo "Make failed or no target; compiling directly"
+  "$CC_CMD" -Wall -O2 -I"$STAGING_PREFIX/include" -L"$STAGING_PREFIX/lib" -o dlf_parser_helper.exe dlf_parser_helper.c -ldivecomputer
+fi
+
+if [ ! -f dlf_parser_helper.exe ]; then
+  echo "ERROR: dlf_parser_helper.exe not found after build"
+  exit 1
+fi
+
+# 5) collect artifacts
+cp dlf_parser_helper.exe "$DIST_DIR/"
+
+# copy libdivecomputer dll if present
+if [ -f "$STAGING_PREFIX/bin/libdivecomputer.dll" ]; then
+  cp "$STAGING_PREFIX/bin/libdivecomputer.dll" "$DIST_DIR/"
+fi
+
+# 6) collect common mingw runtime dlls from sysroot location
+# Common runtime DLLs names that may be required
+RUNTIME_DLLS=(libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll)
+# try candidate sysroot locations used by mingw package
+SYSROOTS=("/usr/${TARGET_HOST}/lib" "/usr/${TARGET_HOST}/lib64" "/usr/${TARGET_HOST}/bin" "/usr/lib/${TARGET_HOST}" "/usr/x86_64-w64-mingw32/sys-root/mingw/bin")
+
+for s in "${SYSROOTS[@]}"; do
+  for dll in "${RUNTIME_DLLS[@]}"; do
+    if [ -f "$s/$dll" ]; then
+      cp "$s/$dll" "$DIST_DIR/" || true
+    fi
+  done
+done
+
+# 7) inspect exe for missing imports (optional, best-effort)
+if command -v "${TARGET_HOST}-objdump" >/dev/null 2>&1; then
+  echo "Inspecting imports via ${TARGET_HOST}-objdump"
+  ${TARGET_HOST}-objdump -p "$DIST_DIR/dlf_parser_helper.exe" | grep -i "DLL" || true
+fi
+
+# 8) finished
+echo "=== Build complete. Artifacts in: $DIST_DIR ==="
+ls -la "$DIST_DIR"
+
+# 9) package into a zip (optional auto-run)
+cd "$BASE_DIR"
+ZIP_NAME="dlf_to_csv-windows-$(date +%Y%m%d-%H%M%S).zip"
+( cd "$DIST_DIR" && zip -r "../$ZIP_NAME" . )
+echo "Created $BASE_DIR/$ZIP_NAME"
+
+exit 0
+________________________________________
+File: windows/check-deps.sh
+#!/usr/bin/env bash
+# check-deps.sh - verifies essential tools for cross-build
+set -euo pipefail
+
+err() { echo "ERROR: $*" >&2; exit 2; }
+
+command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 || err "x86_64-w64-mingw32-gcc not found. Install mingw-w64."
+command -v git >/dev/null 2>&1 || err "git not found."
+command -v pkg-config >/dev/null 2>&1 || err "pkg-config not found."
+
+# optional helpful tools
+if command -v wine >/dev/null 2>&1; then
+  echo "Note: wine present — you can test the produced exe under Wine."
+fi
+
+x86_64-w64-mingw32-gcc --version | head -n1
+pkg-config --version || true
+
+echo "All required tools appear present."
+________________________________________
+File: windows/package-windows.sh
+#!/usr/bin/env bash
+# package-windows.sh - create a zip of the dist/win-x86_64 artifacts
+set -euo pipefail
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+DIST_DIR="$BASE_DIR/dist/win-x86_64"
+if [ ! -d "$DIST_DIR" ]; then
+  echo "No dist directory found. Run build-cross-ubuntu.sh first." >&2; exit 1
+fi
+OUT="dlf_to_csv-windows-$(date +%Y%m%d-%H%M%S).zip"
+cd "$DIST_DIR"
+zip -r "$BASE_DIR/$OUT" .
+cd "$BASE_DIR"
+echo "Created $OUT"
+________________________________________
+File: windows/msys2-build-instructions.txt
+MSYS2 / MinGW64 build instructions (recommended for producing Windows-native builds)
+
+1) Install MSYS2: https://www.msys2.org/ and open "MSYS2 MinGW 64-bit" shell.
+
+2) Update and install packages in MinGW64 shell:
+   pacman -Syu    # may require shell restart
+   pacman -S --needed base-devel mingw-w64-x86_64-toolchain \
+     mingw-w64-x86_64-autoconf mingw-w64-x86_64-automake mingw-w64-x86_64-libtool \
+     mingw-w64-x86_64-pkg-config mingw-w64-x86_64-glib2 mingw-w64-x86_64-libusb
+
+3) Clone libdivecomputer and build:
+   git clone https://github.com/libdivecomputer/libdivecomputer.git
+   cd libdivecomputer
+   autoreconf --install
+   ./configure --prefix=/mingw64 --enable-shared --disable-static
+   make -j$(nproc)
+   make install
+
+4) Build helper (from repo root inside MinGW64 shell):
+   cd /path/to/DLF_TO_CSV/tools
+   export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
+   make
+   # copy dlf_parser_helper.exe and required DLLs from /mingw64/bin to a dist/ folder
+
+Notes:
+ - Building inside MSYS2 ensures all Windows-targeted dependencies (glib, libusb) are available as mingw packages.
+ - Package the exe and the DLLs in the same folder for distribution.
+________________________________________
+File: windows/README_windows.md
+# DLF_TO_CSV - Windows usage for dlf_parser_helper
+
+This folder contains scripts to cross-build `dlf_parser_helper.exe` (Windows) from Ubuntu, and short instructions for Windows users.
+
+## What you will get (dist folder)
+- `dlf_parser_helper.exe`  -- the Windows executable
+- `libdivecomputer.dll`     -- required library
+- possibly other DLLs (libgcc, libstdc++, libwinpthread)
+
+## Windows user quick-start
+1. Install Python 3.12+ from https://www.python.org/downloads/windows/ and check "Add Python to PATH".
+2. Copy the entire `dist/` folder to a Windows machine (e.g. `C:\dlf-tools\`).
+3. Put `dlf_parser_helper.exe` and `libdivecomputer.dll` in the same folder.
+4. Copy `libdc_json_to_csv.py` (from repository `tools/`) to the same folder or install the repo and run:
+
+```powershell
+python libdc_json_to_csv.py --helper dlf_parser_helper.exe --out out.csv path\to\input.dlf
+Notes
+•	If running the exe yields a missing DLL error, copy the listed DLL into the same folder.
+•	PyInstaller-built Python exe is not provided; Windows users should run the Python wrapper using their system Python.
+
+---
+
+## File: windows/BUILD_MANUAL.md
+
+```markdown
+# BUILD_MANUAL: Cross-compile Windows helper from Ubuntu 24.04
+
+This document is developer-facing. It explains the exact steps the scripts perform and how to troubleshoot.
+
+## Prerequisites on Ubuntu 24.04
+- sudo privileges
+- packages: git, build-essential, mingw-w64, pkg-config, autoconf, automake, libtool, zip
+- Optional: wine for quick testing of produced exe
+
+Install these packages:
+
+```bash
+sudo apt update
+sudo apt install -y git build-essential mingw-w64 pkg-config autoconf automake libtool zip
+Steps performed by build-cross-ubuntu.sh
+1.	Runs windows/check-deps.sh to verify x86_64-w64-mingw32-gcc, pkg-config, git are available.
+2.	Cleans previous windows/dist/ and temporary build dir at /tmp/libdivecomputer_build.
+3.	Clones libdivecomputer into the build dir and runs autoreconf --install.
+4.	Configures libdivecomputer with:
+ 	./configure --host=x86_64-w64-mingw32 --build=$(uname -m)-pc-linux-gnu --prefix=$STAGING --enable-shared --disable-static
+5.	Builds and make install into a staging prefix.
+6.	Builds dlf_parser_helper.exe in tools/ using cross-compiler and links against $STAGING/lib.
+7.	Copies dlf_parser_helper.exe and libdivecomputer.dll (if produced) into windows/dist/win-x86_64.
+8.	Attempts to copy common mingw runtime DLLs if found in known sysroot locations.
+9.	Creates a timestamped zip of the dist contents.
+Troubleshooting tips
+•	configure fails: inspect config.log for missing headers/libraries. On cross-build you may need to provide cross-compiled dependencies (glib, libusb). Usually using MSYS2/MinGW on Windows is easier.
+•	undefined references at link time: ensure -L points to the staging prefix lib dir and that the import library libdivecomputer.dll.a exists.
+•	missing runtime DLLs on Windows: use ${TARGET_HOST}-objdump -p dlf_parser_helper.exe to list needed DLLs and copy them from the cross sysroot or MSYS2 /mingw64/bin.
+•	test via Wine: wine dlf_parser_helper.exe tests/00000002.dlf > out.json will show dynamic loader errors for missing DLLs.
+Where to find logs
+•	The script echoes commands and exits on error. For deeper logs, run with bash -x windows/build-cross-ubuntu.sh.
+
+---
+
+## File: windows/.gitignore (snippet)
+
+```text
+# ignore distribution artifacts
+/dist/
+
+# local build temp used by scripts
+/tmp/libdivecomputer_build
+________________________________________
+File: windows/.github-actions-windows-build.yml (example workflow to add to repo/.github/workflows)
+name: Build Windows helper (cross-compile)
+
+on:
+  push:
+    branches: [ mail ]
+  workflow_dispatch:
+
+jobs:
+  build-win-cross:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross toolchain and deps
+        run: |
+          sudo apt update
+          sudo apt install -y git build-essential autoconf automake libtool pkg-config g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 mingw-w64 zip
+
+      - name: Build libdivecomputer (cross)
+        run: |
+          WORK=/tmp/libdc_ci
+          rm -rf $WORK
+          git clone --depth 1 https://github.com/libdivecomputer/libdivecomputer.git $WORK/libdivecomputer
+          cd $WORK/libdivecomputer
+          autoreconf --install || true
+          ./configure --host=x86_64-w64-mingw32 --prefix=$WORK/libdc-win --enable-shared --disable-static \
+            CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar RANLIB=x86_64-w64-mingw32-ranlib
+          make -j$(nproc)
+          make install
+
+      - name: Build helper
+        run: |
+          export PKG_CONFIG_LIBDIR=$WORK/libdc-win/lib/pkgconfig
+          cd tools
+          make CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar RANLIB=x86_64-w64-mingw32-ranlib || true
+          mkdir -p windows/dist/win-x86_64
+          if [ -f tools/dlf_parser_helper ]; then cp tools/dlf_parser_helper windows/dist/win-x86_64/dlf_parser_helper.exe; fi
+          if [ -f dlf_parser_helper.exe ]; then cp dlf_parser_helper.exe windows/dist/win-x86_64/dlf_parser_helper.exe; fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dlf_to_csv-windows
+          path: windows/dist
+________________________________________
+Commit message suggestion
+Add Windows cross-build scripts & CI
+________________________________________
+How to use this canvas
+Open the canvas and copy each file to windows/ in your repository. After saving the files locally, run:
+# from repo root
+git checkout -b mail
+git add windows
+git commit -m "Add Windows cross-build scripts & CI"
+git push origin mail
+If you want, I can also produce a single one-liner that writes these files into your repo for you. Request that and I will provide it.
+________________________________________
+If you want any file tweaked (different prefix, static vs shared default, add more DLL collection paths), tell me and I will update the canvas file accordingly.
