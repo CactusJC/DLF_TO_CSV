@@ -1,0 +1,80 @@
+name: Build Windows Artifacts
+
+on:
+  push:
+    branches:
+      - mail
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  build-windows-cross-compile:
+    name: Cross-Compile on Ubuntu for Windows
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Windows Cross-Build Script
+        run: ./windows/build-cross-ubuntu.sh
+
+      - name: Upload Windows Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: windows/dist/
+
+  # --- Optional: Native Windows build using MSYS2 ---
+  # This job demonstrates how to build directly on a Windows runner.
+  # It is commented out by default but can be enabled for testing or as a primary build method.
+  #
+  # build-windows-native:
+  #   name: Native Build on Windows (MSYS2)
+  #   runs-on: windows-latest
+  #
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Set up MSYS2
+  #       uses: msys2/setup-msys2@v2
+  #       with:
+  #         msystem: MINGW64
+  #         update: true
+  #         install: >-
+  #           git
+  #           mingw-w64-x86_64-toolchain
+  #           autoconf
+  #           automake
+  #           libtool
+  #           pkg-config
+  #
+  #     - name: Build libdivecomputer
+  #       shell: msys2 {0}
+  #       run: |
+  #         git clone https://github.com/libdivecomputer/libdivecomputer.git /tmp/libdivecomputer
+  #         cd /tmp/libdivecomputer
+  #         autoreconf --install
+  #         ./configure --prefix=/mingw64
+  #         make -j$(nproc)
+  #         make install
+  #
+  #     - name: Build dlf_parser_helper
+  #       shell: msys2 {0}
+  #       run: |
+  #         cd $GITHUB_WORKSPACE/tools
+  #         gcc -Wall -O2 -o dlf_parser_helper.exe dlf_parser_helper.c -ldivecomputer
+  #
+  #     - name: Package artifacts
+  #       shell: msys2 {0}
+  #       run: |
+  #         mkdir -p $GITHUB_WORKSPACE/windows/dist/win-x86_64
+  #         cp $GITHUB_WORKSPACE/tools/dlf_parser_helper.exe $GITHUB_WORKSPACE/windows/dist/win-x86_64/
+  #         cp /mingw64/bin/libdivecomputer.dll $GITHUB_WORKSPACE/windows/dist/win-x86_64/
+  #         # Add commands to copy other required DLLs here if needed
+  #
+  #     - name: Upload Windows Build Artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: windows-dist-native
+  #         path: windows/dist/
