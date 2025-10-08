@@ -1,0 +1,108 @@
+# Building dlf_parser_helper Natively on Windows with MSYS2
+
+This guide provides the commands to build `dlf_parser_helper.exe` and its dependency `libdivecomputer` directly on Windows using an MSYS2 environment.
+
+## 1. Setup MSYS2
+
+*   **Install MSYS2:** Download and install MSYS2 from the official website: https://www.msys2.org/
+*   **Launch MSYS2:** After installation, open the **MSYS2 MinGW 64-bit** shell (do not use the standard MSYS2 or MinGW 32-bit shells).
+
+## 2. Update MSYS2 and Install Dependencies
+
+1.  **Update the package database and base packages:**
+    (You may need to close and reopen the shell if core packages are updated).
+
+    ```sh
+    pacman -Syu
+    ```
+
+2.  **Update the rest of the packages:**
+
+    ```sh
+    pacman -Su
+    ```
+
+3.  **Install the required development tools:**
+    This command installs the MinGW-w64 64-bit toolchain (GCC), autotools, pkg-config, and git.
+
+    ```sh
+    pacman -S --needed --noconfirm \
+      mingw-w64-x86_64-toolchain \
+      autoconf \
+      automake \
+      libtool \
+      pkg-config \
+      git
+    ```
+
+## 3. Build libdivecomputer
+
+1.  **Clone the libdivecomputer repository:**
+
+    ```sh
+    git clone https://github.com/libdivecomputer/libdivecomputer.git /tmp/libdivecomputer
+    cd /tmp/libdivecomputer
+    ```
+
+2.  **Generate configuration scripts:**
+
+    ```sh
+    autoreconf --install
+    ```
+
+3.  **Configure the build:**
+    We will install the library into the `/mingw64` prefix, which is the standard location for MSYS2 MinGW packages.
+
+    ```sh
+    ./configure --prefix=/mingw64 --enable-shared --disable-static
+    ```
+
+4.  **Compile and install:**
+
+    ```sh
+    make -j$(nproc)
+    make install
+    ```
+
+    After this, `libdivecomputer.dll` will be available in the `/mingw64/bin` directory, and the headers and import libraries will be in `/mingw64/include` and `/mingw64/lib` respectively.
+
+## 4. Build dlf_parser_helper.exe
+
+1.  **Navigate to the project's `tools` directory:**
+    (Assuming your project is located at `~/DLF_TO_CSV`)
+
+    ```sh
+    cd ~/DLF_TO_CSV/tools
+    ```
+
+2.  **Compile the helper executable:**
+    The compiler will automatically find `libdivecomputer` in the `/mingw64` prefix, so you don't need to specify `-I` or `-L` flags.
+
+    ```sh
+    gcc -Wall -O2 -o dlf_parser_helper.exe dlf_parser_helper.c -ldivecomputer
+    ```
+
+3.  **Verify the executable:**
+    You should now have `dlf_parser_helper.exe` in the `tools` directory.
+
+## 5. Package the Artifacts
+
+1.  **Create a distribution directory:**
+
+    ```sh
+    mkdir -p ../dist/win-x86_64
+    ```
+
+2.  **Copy the executable and required DLLs:**
+
+    ```sh
+    cp dlf_parser_helper.exe ../dist/win-x86_64/
+    cp /mingw64/bin/libdivecomputer.dll ../dist/win-x86_64/
+
+    # You may need to copy other runtime DLLs from /mingw64/bin as well,
+    # such as libgcc_s_seh-1.dll, libwinpthread-1.dll, etc.
+    # Use 'ldd dlf_parser_helper.exe' to check for dependencies.
+    ldd dlf_parser_helper.exe
+    ```
+
+The `dist/win-x86_64` directory now contains all the necessary files to run the tool on any Windows machine.

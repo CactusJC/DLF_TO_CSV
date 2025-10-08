@@ -10,3 +10,4 @@ tests/reference.xml
 
 # Temporary files
 *.log
+windows/dist/
